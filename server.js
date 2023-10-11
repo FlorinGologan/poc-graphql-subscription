@@ -20,44 +20,106 @@ app.use(function (req, res, next) {
 });
 
 const typeDefs = `
-    type Query{
-        totalPosts: Int!
+    type Query {
+        squares: [Position!]!
+        container: Container!
     }
+
     type Position {
+        id: ID!
         x: Float!
         y: Float!
+        color: String!
+    }
+
+    type Container {
+        width: Float!
+        height: Float!
+        numOfSquares: Int!
     }
     
+    input ContainerInput {
+        width: Float!
+        height: Float!
+        numOfSquares: Int!
+    }
+
     type Subscription {
-        newPosition: Position!
+        updatedSquares: [Position!]!
     }
-    
+
     type Mutation {
-        sendPosition(x: Float, y: Float): Position!
+        sendSquareUpdates(squares: [PositionInput!]!): [Position!]!
+        initializeContainer(dimensions: ContainerInput!): Container!
+    }
+
+    input PositionInput {
+        id: ID!
+        x: Float
+        y: Float
     }
 `;
 
+let container = { width: 800, height: 600, numOfSquares: 10 };
+let squares = [];
+
+const getRandomColor = () => {
+    const r = Math.floor(Math.random() * 256);
+    const g = Math.floor(Math.random() * 256);
+    const b = Math.floor(Math.random() * 256);
+    return `rgb(${r},${g},${b})`;
+};
+
+const updateRandomSquarePositions = () => {
+    if (!squares.length) return;
+
+    const randomSquare = squares[Math.floor(Math.random() * squares.length)];
+
+    randomSquare.x = Math.random() * container.width;
+    randomSquare.y = Math.random() * container.height;
+
+    pubsub.publish('UPDATED_SQUARES', { updatedSquares: squares });
+};
+
+setInterval(updateRandomSquarePositions, 1000);
+
+
 const resolvers = {
     Query: {
-        totalPosts: () => 100,
-    },
-    Subscription: {
-        newPosition: {
-            subscribe: () => pubsub.asyncIterator(['NEW_POSITION'])
-        }
+        squares: () => squares,
+        container: () => container,
     },
     Mutation: {
-        sendPosition: (parent, args) => {
-            const position = {
-                x: args.x || Math.random() * 100,
-                y: args.y || Math.random() * 100
-            };
-            pubsub.publish('NEW_POSITION', { newPosition: position });
-            return position;
+        sendSquareUpdates: (parent, args) => {
+            args.squares.forEach(square => {
+                const index = squares.findIndex(c => c.id === square.id);
+                if (index >= 0) {
+                    squares[index] = square;
+                } else {
+                    squares.push(square);
+                }
+            });
+            pubsub.publish('UPDATED_SQUARES', { updatedSquares: squares });
+            return squares;
+        },
+        initializeContainer: (parent, args) => {
+            container = args.dimensions;
+            squares = Array.from({ length: container.numOfSquares }, (_, idx) => ({
+                id: `${idx}`,
+                x: Math.random() * container.width,
+                y: Math.random() * container.height,
+                color: getRandomColor()
+            }));
+
+            return container;
+        },
+    },
+    Subscription: {
+        updatedSquares: {
+            subscribe: () => pubsub.asyncIterator(['UPDATED_SQUARES'])
         }
     }
 };
-
 const schema = makeExecutableSchema({ typeDefs, resolvers });
 
 async function startServer() {
