@@ -70,19 +70,45 @@ const getRandomColor = () => {
     return `rgb(${r},${g},${b})`;
 };
 
-const updateRandomSquarePositions = () => {
-    if (!squares.length) return;
+const initializeContainer = (dimensions) => {
+    container = dimensions;
+    squares = Array.from({ length: container.numOfSquares }, (_, idx) => ({
+        id: `${idx}`,
+        x: Math.random() * container.width,
+        y: Math.random() * container.height,
+        color: getRandomColor()
+    }));
+}
+initializeContainer(container);
 
-    const randomSquare = squares[Math.floor(Math.random() * squares.length)];
+const updateRandomSquarePositions = (numberOfUpdates) => {
+    if (!squares.length) return [];
 
-    randomSquare.x = Math.random() * container.width;
-    randomSquare.y = Math.random() * container.height;
+    const updatedSquares = [];
 
-    pubsub.publish('UPDATED_SQUARES', { updatedSquares: squares });
+    for (let i = 0; i < numberOfUpdates; i++) {
+        const randomSquare = squares[Math.floor(Math.random() * squares.length)];
+
+        randomSquare.x = Math.random() * container.width;
+        randomSquare.y = Math.random() * container.height;
+
+        if (!updatedSquares.some(sq => sq.id === randomSquare.id)) {
+            updatedSquares.push(randomSquare);
+        }
+    }
+
+    return updatedSquares;
 };
 
-setInterval(updateRandomSquarePositions, 1000);
+setInterval(() => {
+    // Decide the number of updates, for example, between 1 and 3
+    const numUpdates = Math.floor(Math.random() * 3) + 1;
 
+    const updatedSquares = updateRandomSquarePositions(numUpdates);
+    if (updatedSquares.length) {
+        pubsub.publish('UPDATED_SQUARES', { updatedSquares });
+    }
+}, 1000);
 
 const resolvers = {
     Query: {
@@ -103,15 +129,8 @@ const resolvers = {
             return squares;
         },
         initializeContainer: (parent, args) => {
-            container = args.dimensions;
-            squares = Array.from({ length: container.numOfSquares }, (_, idx) => ({
-                id: `${idx}`,
-                x: Math.random() * container.width,
-                y: Math.random() * container.height,
-                color: getRandomColor()
-            }));
-
-            return container;
+            initializeContainer(args.dimensions);
+            return args.dimensions;
         },
     },
     Subscription: {
