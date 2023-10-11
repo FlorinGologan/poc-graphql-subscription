@@ -2,10 +2,10 @@ const express = require("express");
 const { ApolloServer } = require("apollo-server-express");
 const http = require("http");
 const { PubSub } = require("graphql-subscriptions");
-const { useServer } = require('graphql-ws/lib/use/ws');
+const { SubscriptionServer } = require('subscriptions-transport-ws');
 const { execute, subscribe } = require('graphql');
+
 const { makeExecutableSchema } = require('graphql-tools');
-const WebSocket = require('ws');
 
 
 const port = process.env.PORT || 4001;
@@ -73,21 +73,14 @@ startServer();
 
 const httpServer = http.createServer(app);
 
-// Create a WebSocket server
-const wsServer = new WebSocket.Server({
+new SubscriptionServer({
+    execute,
+    subscribe,
+    schema,
+}, {
     server: httpServer,
     path: '/graphql',
 });
-
-// Use graphql-ws with the WebSocket server
-useServer(
-    {
-        schema,
-        execute,
-        subscribe
-    },
-    wsServer
-);
 
 httpServer.listen(port, () => {
     console.log(`graphql server is running: http://localhost:${port}${apolloServer.graphqlPath}`);
