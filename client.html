@@ -1,0 +1,233 @@
+<div id="floor" style="width: 825px; height: 625px; border: 1px solid;"></div>
+
+<script>
+    const SquareModule = (function () {
+        const squareSize = 25;
+
+        const style = document.createElement('style');
+        style.innerHTML = `
+        .square {
+            width: ${squareSize}px;
+            height: ${squareSize}px;
+            position: absolute;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #fff;
+        }
+        `;
+        document.head.appendChild(style);
+
+        const generateSquareId = (id) => `square-${id}`
+
+        const createOrUpdateSquare = (squareEvent) => {
+            const container = document.getElementById("floor");
+
+            let square = document.getElementById(generateSquareId(squareEvent.id));
+
+            if (!square) {
+                square = document.createElement("div");
+                square.id = generateSquareId(squareEvent.id);
+                square.className = "square";
+                square.style.backgroundColor = squareEvent.color;
+                square.textContent = squareEvent.id;
+                container.appendChild(square);
+            }
+
+            square.style.left = squareEvent.x + "px";
+            square.style.top = squareEvent.y + "px";
+        }
+
+        const clearSquares = () => {
+            document.querySelectorAll('.square').forEach(function (element) {
+                element.parentNode.removeChild(element);
+            });
+        }
+
+        const moduleExports = {
+            createOrUpdateSquare,
+            clearSquares
+        };
+
+        window.SquareModule = moduleExports;
+
+        return moduleExports;
+
+    })();
+
+    const DataModule = (() => {
+
+        // const wsUrl = `ws://localhost:4001/graphql`;
+        const wsUrl = `wss://poc-graphql-subscription.onrender.com/graphql`;
+        const httpUrl = wsUrl.replace(/^ws(s?):/, "http$1:");
+
+
+        let ws;
+
+        const processIncomingData = (data) => {
+            const squares = data.updatedSquares;
+            console.log('Updated squares:', squares);
+            squares.forEach((square) => {
+                SquareModule.createOrUpdateSquare(square)
+            });
+        };
+
+        const SUBSCRIPTION_QUERY = `
+            subscription Subscription {
+                updatedSquares {
+                    id
+                    x
+                    y
+                    color
+                }
+            }
+        `;
+        const INITIALIZE_CONTAINER_MUTATION = `
+            mutation InitializeContainer($dimensions: ContainerInput!) {
+                initializeContainer(dimensions: $dimensions) {
+                numOfSquares
+                width
+                height
+                }
+            }
+        `;
+
+        const startSubscription = () => {
+            ws = new WebSocket(wsUrl, 'graphql-ws');
+
+            ws.onopen = () => {
+                const payload = {
+                    id: '1',
+                    type: 'start',
+                    payload: {
+                        query: SUBSCRIPTION_QUERY,
+                        variables: {},
+                        operationName: "Subscription"
+                    }
+                };
+
+                ws.send(JSON.stringify(payload));
+            };
+
+            ws.onmessage = (event) => {
+                const message = JSON.parse(event.data);
+                if (message.type === 'data' && message.id === '1') {
+                    processIncomingData(message.payload.data);
+                }
+            };
+
+            ws.onerror = (event) => {
+                console.error("WebSocket Error: ", event);
+            };
+
+            ws.onclose = (event) => {
+                if (event.wasClean) {
+                    console.log(`Closed cleanly, code=${event.code}, reason=${event.reason}`);
+                } else {
+                    console.error('Connection terminated abruptly');
+                }
+            };
+        };
+
+        const stopSubscription = () => {
+            if (ws) {
+                ws.close();
+            }
+        };
+
+        const loadSquares = async () => {
+            SquareModule.clearSquares();
+            const query = `{
+                squares {
+                    id
+                    x
+                    y
+                    color
+                }
+            }`;
+
+            try {
+                const response = await fetch(httpUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        query: query
+                    }),
+                });
+
+                const data = await response.json();
+
+                if (data.errors) {
+                    console.error('GraphQL Error:', data.errors);
+                    return;
+                }
+
+                const squares = data.data.squares;
+                squares.forEach(square => {
+                    SquareModule.createOrUpdateSquare(square);
+                });
+
+            } catch (error) {
+                console.error('Fetch Error:', error);
+            }
+        };
+
+        const setContainer = async (numOfSquares = 10, width = 800, height = 600) => {
+            const dimensions = {
+                numOfSquares,
+                width,
+                height
+            };
+            console.log('Setting container dimensions:', dimensions);
+            try {
+                const response = await fetch(httpUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        query: INITIALIZE_CONTAINER_MUTATION,
+                        variables: {
+                            dimensions: dimensions
+                        }
+                    }),
+                });
+
+                const data = await response.json();
+
+                if (data.errors) {
+                    console.error('GraphQL Error:', data.errors);
+                    return null;
+                }
+
+                loadSquares();
+
+                return data.data.initializeContainer;
+
+            } catch (error) {
+                console.error('Mutation Error:', error);
+                return null;
+            }
+        };
+
+
+
+        const moduleExports = {
+            startSubscription,
+            stopSubscription,
+            loadSquares,
+            setContainer
+        };
+
+        window.SubscriptionDataModule = moduleExports;
+
+        return moduleExports;
+
+    })();
+
+    // DataModule.loadSquares();
+    // DataModule.startSubscription();
+
+</script>
